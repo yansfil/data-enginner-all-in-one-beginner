@@ -1,0 +1,94 @@
+version: "3.8"
+
+x-airflow-common: &airflow-common
+  image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:2.4.0}
+  environment: &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__SQL_ALCHEMY_CONN: mysql://airflow:airflow@airflow-metadb:3306/airflow
+    AIRFLOW__CORE__FERNET_KEY: ''
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'true'
+    _AIRFLOW_DB_UPGRADE : 'true'
+    _AIRFLOW_WWW_USER_CREATE : 'true'
+    _AIRFLOW_WWW_USER_USERNAME: airflow
+    _AIRFLOW_WWW_USER_PASSWORD: airflow
+    _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:-}
+  volumes:
+    - ./airflow/dags:/opt/airflow/dags
+    - ./.volumes/airflow/logs:/opt/airflow/logs
+    - ./.volumes/airflow/plugins:/opt/airflow/plugins
+  depends_on: &airflow-common-depends-on
+    airflow-metadb:
+      condition: service_healthy
+
+services:
+#  source_db:
+#    image: postgres:14.2
+#    container_name: source_db
+#    restart: always
+#    ports:
+#      - "5432:5432"
+#    environment:
+#      POSTGRES_USER: "postgres"
+#      POSTGRES_PASSWORD: "postgres"
+#    volumes:
+#      - ./.volumes/source:/var/lib/postgresql/data
+#  data_warehouse:
+#    image: postgres:14.2
+#    container_name: data_warehouse
+#    restart: always
+#    ports:
+#      - "5433:5432"
+#    environment:
+#      POSTGRES_USER: "postgres"
+#      POSTGRES_PASSWORD: "postgres"
+#    volumes:
+#      - ./.volumes/dw:/var/lib/postgresql/data
+
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: webserver
+    command: webserver
+    restart: always
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    depends_on:
+      <<: *airflow-common-depends-on
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: scheduler
+    command: scheduler
+    restart: always
+    healthcheck:
+      test:
+         [
+           "CMD-SHELL",
+           'airflow jobs check --job-type SchedulerJob --hostname "$${HOSTNAME}"',
+         ]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    depends_on:
+      <<: *airflow-common-depends-on
+  airflow-metadb:
+    image: mysql:8.0
+    container_name: airlfow-metadb
+    restart: always
+    environment:
+     - MYSQL_USER=airflow
+     - MYSQL_PASSWORD=airflow
+     - MYSQL_DATABASE=airflow
+     - MYSQL_ROOT_PASSWORD=airflow
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+    cap_add:
+      - SYS_NICE
+    volumes:
+      - ./.volumes/airflow/db/data:/var/lib/mysql
