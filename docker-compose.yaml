@@ -22,29 +22,28 @@ x-airflow-common: &airflow-common
       condition: service_healthy
 
 services:
-#  source_db:
-#    image: postgres:14.2
-#    container_name: source_db
-#    restart: always
-#    ports:
-#      - "5432:5432"
-#    environment:
-#      POSTGRES_USER: "postgres"
-#      POSTGRES_PASSWORD: "postgres"
-#    volumes:
-#      - ./.volumes/source:/var/lib/postgresql/data
-#  data_warehouse:
-#    image: postgres:14.2
-#    container_name: data_warehouse
-#    restart: always
-#    ports:
-#      - "5433:5432"
-#    environment:
-#      POSTGRES_USER: "postgres"
-#      POSTGRES_PASSWORD: "postgres"
-#    volumes:
-#      - ./.volumes/dw:/var/lib/postgresql/data
-
+  postgres_source:
+    image: postgres:14.2
+    container_name: postgres_source
+    restart: always
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: "postgres"
+      POSTGRES_PASSWORD: "postgres"
+    volumes:
+      - ./.volumes/source:/var/lib/postgresql/data
+  postgres_dw:
+    image: postgres:14.2
+    container_name: postgres_dw
+    restart: always
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: "postgres"
+      POSTGRES_PASSWORD: "postgres"
+    volumes:
+      - ./.volumes/dw:/var/lib/postgresql/data
   airflow-webserver:
     <<: *airflow-common
     container_name: webserver
@@ -92,3 +91,24 @@ services:
       - SYS_NICE
     volumes:
       - ./.volumes/airflow/db/data:/var/lib/mysql
+  notebook:
+    image: jupyter/minimal-notebook
+    container_name: notebook
+    volumes:
+      - ./notebook/:/home/jovyan/work
+    ports:
+      - "8888:8888"
+  grafana:
+    image: grafana/grafana:8.2.2
+    container_name: grafana
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      GF_INSTALL_PLUGINS: grafana-clock-panel
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+    volumes:
+      - ./.volumes/grafana/provisioning:/etc/grafana/provisioning
+      - ./.volumes/grafana:/var/lib/grafana
