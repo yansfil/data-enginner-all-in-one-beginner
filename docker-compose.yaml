@@ -33,82 +33,132 @@ services:
       POSTGRES_PASSWORD: "postgres"
     volumes:
       - ./.volumes/source:/var/lib/postgresql/data
-  postgres_dw:
-    image: postgres:14.2
-    container_name: postgres_dw
-    restart: always
-    ports:
-      - "5433:5432"
-    environment:
-      POSTGRES_USER: "postgres"
-      POSTGRES_PASSWORD: "postgres"
-    volumes:
-      - ./.volumes/dw:/var/lib/postgresql/data
-  airflow-webserver:
-    <<: *airflow-common
-    container_name: webserver
-    command: webserver
-    restart: always
-    ports:
-      - "8080:8080"
-    healthcheck:
-      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
-      interval: 10s
-      timeout: 10s
-      retries: 5
-    depends_on:
-      <<: *airflow-common-depends-on
-  airflow-scheduler:
-    <<: *airflow-common
-    container_name: scheduler
-    command: scheduler
-    restart: always
-    healthcheck:
-      test:
-         [
-           "CMD-SHELL",
-           'airflow jobs check --job-type SchedulerJob --hostname "$${HOSTNAME}"',
-         ]
-      interval: 10s
-      timeout: 10s
-      retries: 5
-    depends_on:
-      <<: *airflow-common-depends-on
-  airflow-metadb:
-    image: mysql:8.0
-    container_name: airlfow-metadb
-    restart: always
-    environment:
-     - MYSQL_USER=airflow
-     - MYSQL_PASSWORD=airflow
-     - MYSQL_DATABASE=airflow
-     - MYSQL_ROOT_PASSWORD=airflow
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      timeout: 20s
-      retries: 10
-    cap_add:
-      - SYS_NICE
-    volumes:
-      - ./.volumes/airflow/db/data:/var/lib/mysql
+#  postgres_dw:
+#    image: postgres:14.2
+#    container_name: postgres_dw
+#    restart: always
+#    ports:
+#      - "5434:5432"
+#    environment:
+#      POSTGRES_USER: "postgres"
+#      POSTGRES_PASSWORD: "postgres"
+#    volumes:
+#      - ./.volumes/dw:/var/lib/postgresql/data
+#  airflow-webserver:
+#    <<: *airflow-common
+#    container_name: webserver
+#    command: webserver
+#    restart: always
+#    ports:
+#      - "8080:8080"
+#    healthcheck:
+#      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+#      interval: 10s
+#      timeout: 10s
+#      retries: 5
+#    depends_on:
+#      <<: *airflow-common-depends-on
+#  airflow-scheduler:
+#    <<: *airflow-common
+#    container_name: scheduler
+#    command: scheduler
+#    restart: always
+#    healthcheck:
+#      test:
+#         [
+#           "CMD-SHELL",
+#           'airflow jobs check --job-type SchedulerJob --hostname "$${HOSTNAME}"',
+#         ]
+#      interval: 10s
+#      timeout: 10s
+#      retries: 5
+#    depends_on:
+#      <<: *airflow-common-depends-on
+#  airflow-metadb:
+#    image: mysql:8.0
+#    container_name: airlfow-metadb
+#    restart: always
+#    environment:
+#     - MYSQL_USER=airflow
+#     - MYSQL_PASSWORD=airflow
+#     - MYSQL_DATABASE=airflow
+#     - MYSQL_ROOT_PASSWORD=airflow
+#    healthcheck:
+#      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+#      timeout: 20s
+#      retries: 10
+#    cap_add:
+#      - SYS_NICE
+#    volumes:
+#      - ./.volumes/airflow/db/data:/var/lib/mysql
   notebook:
-    image: jupyter/minimal-notebook
+    image: jupyter/pyspark-notebook:python-3.8
     container_name: notebook
     volumes:
-      - ./notebook/:/home/jovyan/work
+      - ./.volumes/notebook:/home/jovyan
     ports:
       - "8888:8888"
-  grafana:
-    image: grafana/grafana:8.2.2
-    container_name: grafana
-    restart: always
+    command: "start-notebook.sh --ip='*' --NotebookApp.token='' --NotebookApp.password=''"
+    depends_on:
+      - spark-master
+#  grafana:
+#    image: grafana/grafana:9.2.4
+#    container_name: grafana
+#    restart: always
+#    ports:
+#      - "3000:3000"
+#    environment:
+#      GF_INSTALL_PLUGINS: grafana-clock-panel
+#      GF_SECURITY_ADMIN_USER: admin
+#      GF_SECURITY_ADMIN_PASSWORD: admin
+#      GF_USERS_ALLOW_SIGN_UP: 'false'
+#    volumes:
+#      - ./.volumes/grafana/provisioning:/etc/grafana/provisioning
+#      - ./.volumes/grafana:/var/lib/grafana
+#    depends_on:
+#      - postgres_source
+#      - postgres_dw
+  spark-master:
+    image: bitnami/spark:3.3
     ports:
-      - "3000:3000"
-    environment:
-      GF_INSTALL_PLUGINS: grafana-clock-panel
-      GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: admin
-      GF_USERS_ALLOW_SIGN_UP: 'false'
+      - "9090:8080"
+      - "7077:7077"
     volumes:
-      - ./.volumes/grafana/provisioning:/etc/grafana/provisioning
-      - ./.volumes/grafana:/var/lib/grafana
+      - ./spark/apps:/opt/spark-apps
+      - ./spark/data:/opt/spark-data
+    environment:
+      - SPARK_MODE=master
+      - SPARK_LOCAL_IP=spark-master
+      - SPARK_WORKLOAD=master
+  spark-worker-a:
+    image: bitnami/spark:3.3
+    ports:
+      - "9091:8081"
+      - "7000:7000"
+    depends_on:
+      - spark-master
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER=spark://spark-master:7077
+      - SPARK_WORKER_CORES=1
+      - SPARK_WORKER_MEMORY=1G
+      - SPARK_DRIVER_MEMORY=1G
+      - SPARK_EXECUTOR_MEMORY=1G
+      - SPARK_WORKLOAD=worker
+      - SPARK_LOCAL_IP=spark-worker-a
+  spark-worker-b:
+    image: bitnami/spark:3.3
+    ports:
+      - "9092:8081"
+      - "7001:7000"
+    depends_on:
+      - spark-master
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER=spark://spark-master:7077
+      - SPARK_WORKER_CORES=1
+      - SPARK_WORKER_MEMORY=1G
+      - SPARK_DRIVER_MEMORY=1G
+      - SPARK_EXECUTOR_MEMORY=1G
+      - SPARK_WORKLOAD=worker
+      - SPARK_LOCAL_IP=spark-worker-b
