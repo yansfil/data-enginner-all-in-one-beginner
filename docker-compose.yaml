@@ -7,7 +7,7 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__SQL_ALCHEMY_CONN: mysql://airflow:airflow@airflow-metadb:3306/airflow
     AIRFLOW__CORE__FERNET_KEY: ''
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
-    AIRFLOW__CORE__LOAD_EXAMPLES: 'true'
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
     _AIRFLOW_DB_UPGRADE : 'true'
     _AIRFLOW_WWW_USER_CREATE : 'true'
     _AIRFLOW_WWW_USER_USERNAME: airflow
@@ -22,9 +22,9 @@ x-airflow-common: &airflow-common
       condition: service_healthy
 
 services:
-  postgres_source:
+  postgresql:
     image: postgres:14.2
-    container_name: postgres_source
+    container_name: postgresql
     restart: always
     ports:
       - "5432:5432"
@@ -32,133 +32,127 @@ services:
       POSTGRES_USER: "postgres"
       POSTGRES_PASSWORD: "postgres"
     volumes:
-      - ./.volumes/source:/var/lib/postgresql/data
-#  postgres_dw:
-#    image: postgres:14.2
-#    container_name: postgres_dw
-#    restart: always
-#    ports:
-#      - "5434:5432"
-#    environment:
-#      POSTGRES_USER: "postgres"
-#      POSTGRES_PASSWORD: "postgres"
-#    volumes:
-#      - ./.volumes/dw:/var/lib/postgresql/data
-#  airflow-webserver:
-#    <<: *airflow-common
-#    container_name: webserver
-#    command: webserver
-#    restart: always
-#    ports:
-#      - "8080:8080"
-#    healthcheck:
-#      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
-#      interval: 10s
-#      timeout: 10s
-#      retries: 5
-#    depends_on:
-#      <<: *airflow-common-depends-on
-#  airflow-scheduler:
-#    <<: *airflow-common
-#    container_name: scheduler
-#    command: scheduler
-#    restart: always
-#    healthcheck:
-#      test:
-#         [
-#           "CMD-SHELL",
-#           'airflow jobs check --job-type SchedulerJob --hostname "$${HOSTNAME}"',
-#         ]
-#      interval: 10s
-#      timeout: 10s
-#      retries: 5
-#    depends_on:
-#      <<: *airflow-common-depends-on
-#  airflow-metadb:
-#    image: mysql:8.0
-#    container_name: airlfow-metadb
-#    restart: always
-#    environment:
-#     - MYSQL_USER=airflow
-#     - MYSQL_PASSWORD=airflow
-#     - MYSQL_DATABASE=airflow
-#     - MYSQL_ROOT_PASSWORD=airflow
-#    healthcheck:
-#      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-#      timeout: 20s
-#      retries: 10
-#    cap_add:
-#      - SYS_NICE
-#    volumes:
-#      - ./.volumes/airflow/db/data:/var/lib/mysql
+      - ./.volumes/source_db:/var/lib/postgresql/data
+  data_warehouse:
+    image: postgres:14.2
+    container_name: data_warehouse
+    restart: always
+    ports:
+      - "5434:5432"
+    environment:
+      POSTGRES_USER: "postgres"
+      POSTGRES_PASSWORD: "postgres"
+    volumes:
+      - ./.volumes/dw:/var/lib/postgresql/data
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: webserver
+    command: webserver
+    restart: always
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    depends_on:
+      <<: *airflow-common-depends-on
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: scheduler
+    command: scheduler
+    restart: always
+    healthcheck:
+      test:
+         [
+           "CMD-SHELL",
+           'airflow jobs check --job-type SchedulerJob --hostname "$${HOSTNAME}"',
+         ]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    depends_on:
+      <<: *airflow-common-depends-on
+  airflow-metadb:
+    image: mysql:8.0
+    container_name: airlfow-metadb
+    restart: always
+    environment:
+     - MYSQL_USER=airflow
+     - MYSQL_PASSWORD=airflow
+     - MYSQL_DATABASE=airflow
+     - MYSQL_ROOT_PASSWORD=airflow
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+    cap_add:
+      - SYS_NICE
+    volumes:
+      - ./.volumes/airflow/db/data:/var/lib/mysql
   notebook:
     image: jupyter/pyspark-notebook:python-3.8
+    user: root
     container_name: notebook
     volumes:
       - ./.volumes/notebook:/home/jovyan
     ports:
       - "8888:8888"
-    command: "start-notebook.sh --ip='*' --NotebookApp.token='' --NotebookApp.password=''"
-    depends_on:
-      - spark-master
-#  grafana:
-#    image: grafana/grafana:9.2.4
-#    container_name: grafana
-#    restart: always
-#    ports:
-#      - "3000:3000"
-#    environment:
-#      GF_INSTALL_PLUGINS: grafana-clock-panel
-#      GF_SECURITY_ADMIN_USER: admin
-#      GF_SECURITY_ADMIN_PASSWORD: admin
-#      GF_USERS_ALLOW_SIGN_UP: 'false'
-#    volumes:
-#      - ./.volumes/grafana/provisioning:/etc/grafana/provisioning
-#      - ./.volumes/grafana:/var/lib/grafana
-#    depends_on:
-#      - postgres_source
-#      - postgres_dw
-  spark-master:
-    image: bitnami/spark:3.3
+    command: "jupyter notebook --ip='*' --NotebookApp.token='' --NotebookApp.password='' --allow-root"
+  superset:
+    image: amancevice/superset:2.0.0
+    container_name: superset
     ports:
-      - "9090:8080"
-      - "7077:7077"
+      - 8088:8088
+    environment:
+      - SUPERSET_HOME=/etc/superset
+      - PREVENT_UNSAFE_DB_CONNECTIONS=False
     volumes:
-      - ./spark/apps:/opt/spark-apps
-      - ./spark/data:/opt/spark-data
-    environment:
-      - SPARK_MODE=master
-      - SPARK_LOCAL_IP=spark-master
-      - SPARK_WORKLOAD=master
-  spark-worker-a:
-    image: bitnami/spark:3.3
-    ports:
-      - "9091:8081"
-      - "7000:7000"
+      - ./.volumes/superset:/etc/superset
     depends_on:
-      - spark-master
-    environment:
-      - SPARK_MODE=worker
-      - SPARK_MASTER=spark://spark-master:7077
-      - SPARK_WORKER_CORES=1
-      - SPARK_WORKER_MEMORY=1G
-      - SPARK_DRIVER_MEMORY=1G
-      - SPARK_EXECUTOR_MEMORY=1G
-      - SPARK_WORKLOAD=worker
-      - SPARK_LOCAL_IP=spark-worker-a
-  spark-worker-b:
-    image: bitnami/spark:3.3
-    ports:
-      - "9092:8081"
-      - "7001:7000"
-    depends_on:
-      - spark-master
-    environment:
-      - SPARK_MODE=worker
-      - SPARK_MASTER=spark://spark-master:7077
-      - SPARK_WORKER_CORES=1
-      - SPARK_WORKER_MEMORY=1G
-      - SPARK_DRIVER_MEMORY=1G
-      - SPARK_EXECUTOR_MEMORY=1G
-      - SPARK_WORKLOAD=worker
-      - SPARK_LOCAL_IP=spark-worker-b
+      - postgresql
+#  spark-master:
+#    image: bitnami/spark:3.3
+#    ports:
+#      - "8080:8080"
+#      - "7077:7077"
+#    volumes:
+#      - ./spark/apps:/opt/spark-apps
+#      - ./spark/data:/opt/spark-data
+#    environment:
+#      - SPARK_MODE=master
+#      - SPARK_LOCAL_IP=spark-master
+#      - SPARK_WORKLOAD=master
+#  spark-worker-a:
+#    image: bitnami/spark:3.3
+#    ports:
+#      - "8081:8081"
+#      - "7000:7000"
+#    depends_on:
+#      - spark-master
+#    environment:
+#      - SPARK_MODE=worker
+#      - SPARK_MASTER=spark://spark-master:7077
+#      - SPARK_WORKER_CORES=1
+#      - SPARK_WORKER_MEMORY=1G
+#      - SPARK_DRIVER_MEMORY=1G
+#      - SPARK_EXECUTOR_MEMORY=1G
+#      - SPARK_WORKLOAD=worker
+#      - SPARK_LOCAL_IP=spark-worker-a
+#  spark-worker-b:
+#    image: bitnami/spark:3.3
+#    ports:
+#      - "8082:8082"
+#      - "7001:7000"
+#    depends_on:
+#      - spark-master
+#    environment:
+#      - SPARK_MODE=worker
+#      - SPARK_MASTER=spark://spark-master:7077
+#      - SPARK_WORKER_CORES=1
+#      - SPARK_WORKER_MEMORY=1G
+#      - SPARK_DRIVER_MEMORY=1G
+#      - SPARK_EXECUTOR_MEMORY=1G
+#      - SPARK_WORKLOAD=worker
+#      - SPARK_LOCAL_IP=spark-worker-b

@@ -1,3 +1,4 @@
 .volumes/*
 !.volumes/.gitkeep
 .idea
+**/__pycache__
